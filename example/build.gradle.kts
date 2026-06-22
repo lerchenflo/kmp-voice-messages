@@ -14,10 +14,14 @@ kotlin {
         minSdk = 24
 
         compilerOptions {
-            jvmTarget = JvmTarget.JVM_11
+            jvmTarget = JvmTarget.JVM_25
         }
     }
-    jvm()
+    jvm {
+        compilerOptions {
+            jvmTarget = JvmTarget.JVM_25
+        }
+    }
 
     sourceSets {
         commonMain.dependencies {

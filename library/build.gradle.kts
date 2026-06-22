@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -9,7 +10,7 @@ plugins {
 }
 
 group = "io.github.lerchenflo"
-version = "1.0.0"
+version = "1.0.0-alpha01"
 
 kotlin {
 
@@ -27,7 +28,7 @@ kotlin {
     jvm()
 
     android {
-        namespace = "io.github.lerchenflo.voicemessages"
+        namespace = "io.github.lerchenflo.kmp-voice-messages"
         compileSdk = libs.versions.android.compileSdk.get().toInt()
         minSdk = libs.versions.android.minSdk.get().toInt()
 
@@ -38,7 +39,7 @@ kotlin {
         }
 
         compilerOptions {
-            jvmTarget = JvmTarget.JVM_11
+            jvmTarget = JvmTarget.JVM_25
         }
     }
 
@@ -65,24 +66,42 @@ kotlin {
     }
 }
 
-mavenPublishing {
 
-    publishToMavenCentral()
 
-    // JitPack builds locally (no GPG key available) and sets this env var; signing is only
-    // needed for an actual Maven Central release, so skip it there.
-    if (System.getenv("JITPACK") == null) {
-        signAllPublications()
+
+publishing {
+    repositories {
+        maven {
+            name = "kmp-voice-messages"
+            description = "A Kotlin Multiplatform library for recording, storing, and playing voice messages, with a bundled Compose Multiplatform UI."
+            url = URI("https://github.com/lerchenflo/kmp-voice-messages/")
+        }
     }
+}
 
+
+mavenPublishing {
     coordinates(group.toString(), "kmp-voice-messages", version.toString())
 
     pom {
-        name = "kmp-voice-messages"
-        description = "A Kotlin Multiplatform library for recording, storing, and playing voice messages, with a bundled Compose Multiplatform UI."
-        inceptionYear = "2026"
-        url = "https://github.com/lerchenflo/kmp-voice-messages/"
-
-
+        name.set("Kmp voice messages")
+        description.set("A simple library to create and play voice messages in kmp")
+        inceptionYear.set("2026")
+        url.set("https://github.com/lerchenflo/kmp-voice-messages/")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+        developers {
+            developer {
+                id.set("main")
+                name.set("lerchenflo")
+                url.set("https://github.com/lerchenflo")
+            }
+        }
     }
+
 }
