@@ -70,6 +70,7 @@ kotlin {
 
 
 publishing {
+
     repositories {
         maven {
             name = "kmp-voice-messages"
@@ -81,6 +82,7 @@ publishing {
 
 
 mavenPublishing {
+
     coordinates(group.toString(), "kmp-voice-messages", version.toString())
 
     pom {
