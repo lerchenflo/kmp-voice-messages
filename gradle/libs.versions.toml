@@ -1,34 +1,36 @@
+# The library is built against the LOWEST versions its consumer apps use.
+# Gradle picks the highest version of a dependency in an app, so a newer version here would silently
+# upgrade Compose / material3 in every app that uses the library (and material3 must match the
+# Compose Multiplatform version, otherwise iOS crashes with an IrLinkage error).
+# Raise these only when every consumer app is on the new version.
 [versions]
 
 android-minSdk = "24"
 android-compileSdk = "37"
-agp = "9.2.1"
+agp = "9.4.1"
 
-foundation = "1.11.1"
-kotlin = "2.4.0"
-
-material3 = "1.9.0"
-runtime = "1.11.1"
-ui = "1.11.1"
-vanniktechMavenPublish = "0.36.0"
-composeMultiplatform = "1.11.1"
+kotlin = "2.4.20"
+composeMultiplatform = "1.12.1" #Plugin and all Compose core libraries (runtime, ui, foundation)
+material3 = "1.12.0-alpha03" #Must be the material3 version listed next to composeMultiplatform in the CMP release notes
+materialIconsExtended = "1.7.3" #Last published version, the artifact is frozen
 kotlinxCoroutines = "1.11.0"
 kotlinxIo = "0.9.0"
+jaad = "0.8.7" #Pure-Java AAC/MP4 decoder (public domain): desktop playback of the .m4a files Android and iOS record
+vanniktechMavenPublish = "0.36.0"
 androidxActivityCompose = "1.13.0"
-materialIconsExtended = "1.7.3"
 
 
 [libraries]
-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "foundation" }
-kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
+foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "composeMultiplatform" }
+ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "composeMultiplatform" }
+material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
+material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "materialIconsExtended" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinxIo" }
+jaad = { module = "de.sfuhrm:jaad", version.ref = "jaad" }
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivityCompose" }
-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "runtime" }
-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "ui" }
-
-material-icons-extended = { module = "org.jetbrains.compose.material:material-icons-extended", version.ref = "materialIconsExtended" }
 
 
 [plugins]

@@ -1,11 +1,22 @@
 package io.github.lerchenflo.voicemessages
 
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.ObjCObjectVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import platform.AVFAudio.AVAudioPlayer
+import platform.AVFAudio.AVAudioSession
+import platform.AVFAudio.AVAudioSessionCategoryPlayback
+import platform.AVFAudio.AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+import platform.AVFAudio.setActive
+import platform.Foundation.NSError
 import platform.Foundation.NSURL
 
-@OptIn(ExperimentalForeignApi::class)
-internal actual class VoicePlayer actual constructor() {
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
+actual class VoicePlayer actual constructor() {
 
     private var player: AVAudioPlayer? = null
 
@@ -19,20 +30,94 @@ internal actual class VoicePlayer actual constructor() {
         get() = player?.isPlaying() ?: false
 
     actual fun play(filePath: String) {
-        stop()
+        releasePlayer()
+        activatePlaybackSession()
+
         val url = NSURL.fileURLWithPath(filePath)
-        val avPlayer = AVAudioPlayer(contentsOfURL = url, error = null)
-        avPlayer.prepareToPlay()
-        avPlayer.play()
-        player = avPlayer
+
+        memScoped {
+            val playerErrorVar = alloc<ObjCObjectVar<NSError?>>()
+            val avPlayer = AVAudioPlayer(contentsOfURL = url, error = playerErrorVar.ptr)
+            val playerError = playerErrorVar.value
+            if (playerError != null) {
+                throw IllegalStateException(
+                    "Failed to create AVAudioPlayer for $filePath: ${playerError.localizedDescription}"
+                )
+            }
+
+            if (!avPlayer.prepareToPlay()) {
+                throw IllegalStateException("AVAudioPlayer.prepareToPlay() failed")
+            }
+
+            avPlayer.play()
+            player = avPlayer
+        }
     }
 
     actual fun pause() {
         player?.takeIf { it.isPlaying() }?.pause()
     }
 
+    actual fun resume() {
+        val current = player?.takeIf { !it.isPlaying() } ?: return
+
+        // The category is process-wide: a recording started since the last play() left the
+        // session on Record, which would make this resume silent.
+        activatePlaybackSession()
+
+        current.play()
+    }
+
+    actual fun seekTo(positionMs: Long) {
+        player?.currentTime = positionMs / 1_000.0
+    }
+
     actual fun stop() {
+        releasePlayer()
+        deactivateSession()
+    }
+
+    private fun releasePlayer() {
         player?.stop()
         player = null
+    }
+
+    private fun activatePlaybackSession() {
+        memScoped {
+            val session = AVAudioSession.sharedInstance()
+
+            val categoryErrorVar = alloc<ObjCObjectVar<NSError?>>()
+            // Playback-only category so the session follows the user's selected output route
+            // (Bluetooth, AirPlay, wired, CarPlay) instead of forcing the built-in speaker.
+            session.setCategory(AVAudioSessionCategoryPlayback, error = categoryErrorVar.ptr)
+            val categoryError = categoryErrorVar.value
+            if (categoryError != null) {
+                throw IllegalStateException(
+                    "Failed to set AVAudioSession category for playback: ${categoryError.localizedDescription}"
+                )
+            }
+
+            val activeErrorVar = alloc<ObjCObjectVar<NSError?>>()
+            session.setActive(true, error = activeErrorVar.ptr)
+            val activeError = activeErrorVar.value
+            if (activeError != null) {
+                throw IllegalStateException(
+                    "Failed to activate AVAudioSession for playback: ${activeError.localizedDescription}"
+                )
+            }
+        }
+    }
+
+    private fun deactivateSession() {
+        memScoped {
+            val session = AVAudioSession.sharedInstance()
+            val errorVar = alloc<ObjCObjectVar<NSError?>>()
+            session.setActive(
+                false,
+                withOptions = AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation,
+                error = errorVar.ptr
+            )
+            // Ignore errors - session might not be active
+        }
     }
 }

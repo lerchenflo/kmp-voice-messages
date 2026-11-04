@@ -10,8 +10,8 @@ plugins {
 kotlin {
     android {
         namespace = "io.github.lerchenflo.voicemessages.example"
-        compileSdk = 37
-        minSdk = 24
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
 
         compilerOptions {
             jvmTarget = JvmTarget.JVM_25
@@ -25,6 +25,7 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            //The demo always uses the library source of this repo, so changes can be tested before a release
             implementation(project(":library"))
             implementation(libs.runtime)
             implementation(libs.foundation)
