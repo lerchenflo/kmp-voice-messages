@@ -69,12 +69,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.0`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.1`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-voice-messages/tags):
 
 ```toml
 [versions]
-kmpVoiceMessages = "1.0.0"
+kmpVoiceMessages = "1.0.1"
 
 [libraries]
 kmp-voice-messages = { module = "com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages", version.ref = "kmpVoiceMessages" }
@@ -302,8 +302,8 @@ Sync Gradle, and the app builds against your local changes. Remove the block bef
 2. Commit and push to `main`.
 3. Create a git tag with the new version and push it, for example:
    ```bash
-   git tag 1.0.1
-   git push origin 1.0.1
+   git tag 1.0.2
+   git push origin 1.0.2
    ```
 4. Open `https://jitpack.io/#lerchenflo/kmp-voice-messages`, click **Get it** next to the tag, and
    wait for the build. JitPack also builds a tag the first time an app asks for it, but then that
@@ -329,6 +329,10 @@ tried without a tag by using its short hash as version, for example
 
 ## Changelog
 
+### 1.0.1
+
+- Built for Java 25 (the desktop part needs JVM 25 or newer). Same code as 1.0.0.
+
 ### 1.0.0
 
 - Desktop plays the AAC (`.m4a`) voice messages recorded on Android and iOS (pure-Java decoder JAAD,
@@ -342,7 +346,7 @@ tried without a tag by using its short hash as version, for example
   64 kbps.
 - iOS player and recorder fixes.
 - Published on JitPack as `com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages`, built for
-  JVM 25, against Kotlin 2.4.20 / Compose Multiplatform 1.12.1 / material3 1.12.0-alpha03.
+  JVM 11, against Kotlin 2.4.20 / Compose Multiplatform 1.12.1 / material3 1.12.0-alpha03.
 
 ### 1.0.0-alpha01
 
