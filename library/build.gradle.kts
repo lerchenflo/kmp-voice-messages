@@ -34,8 +34,8 @@ kotlin {
 
     jvm {
         compilerOptions {
-            //11 so consumers with an older jvmTarget can use the library
-            jvmTarget = JvmTarget.JVM_11
+            //25, the Java version the consumer apps build with
+            jvmTarget = JvmTarget.JVM_25
         }
     }
 
@@ -45,8 +45,8 @@ kotlin {
         minSdk = libs.versions.android.minSdk.get().toInt()
 
         compilerOptions {
-            //11 so consumers with an older jvmTarget can use the library
-            jvmTarget = JvmTarget.JVM_11
+            //25, the Java version the consumer apps build with
+            jvmTarget = JvmTarget.JVM_25
         }
     }
 
@@ -79,7 +79,7 @@ kotlin {
 
 //Keeps the Java part of the jvm target on the same bytecode level as the Kotlin part
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(11)
+    options.release.set(25)
 }
 
 // JitPack rewrites the Gradle module metadata and drops the classifier from every file name

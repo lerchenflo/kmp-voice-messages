@@ -46,7 +46,7 @@ configure unless you want to (see [Public API](#public-api) below).
 | material3             | `org.jetbrains.compose.material3:material3` 1.12.0-alpha03 or newer |
 | Android               | minSdk 24, compileSdk 37                                            |
 | iOS                   | `iosArm64`, `iosSimulatorArm64` (no `iosX64`)                       |
-| Desktop               | JVM 11 or newer                                                     |
+| Desktop               | JVM 25 or newer                                                     |
 
 The library is built against the lowest versions above on purpose. Gradle always picks the highest
 version of a dependency in your app, so the library never upgrades Compose or material3 in your
@@ -342,7 +342,7 @@ tried without a tag by using its short hash as version, for example
   64 kbps.
 - iOS player and recorder fixes.
 - Published on JitPack as `com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages`, built for
-  JVM 11, against Kotlin 2.4.20 / Compose Multiplatform 1.12.1 / material3 1.12.0-alpha03.
+  JVM 25, against Kotlin 2.4.20 / Compose Multiplatform 1.12.1 / material3 1.12.0-alpha03.
 
 ### 1.0.0-alpha01
 
