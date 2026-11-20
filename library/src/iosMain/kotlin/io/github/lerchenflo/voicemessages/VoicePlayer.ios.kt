@@ -29,8 +29,15 @@ actual class VoicePlayer actual constructor() {
 
     // AVAudioPlayer holds its delegate weakly, so the player keeps it here
     private val playbackEndDelegate = PlaybackEndDelegate { endedPlayer ->
-        if (endedPlayer === player) finished = true
+        if (endedPlayer === player) {
+            finished = true
+            releaseSession()
+        }
     }
+
+    // Whether this player activated the shared session for play() or resume() and has not given
+    // it back yet through pause(), stop(), the end or a failed play()
+    private var holdsSession: Boolean = false
 
     actual val positionMs: Long
         get() = player?.let { (it.currentTime * 1_000).toLong() } ?: 0L
@@ -46,6 +53,17 @@ actual class VoicePlayer actual constructor() {
 
     actual fun play(filePath: String) {
         releasePlayer()
+        try {
+            startPlayer(filePath)
+        } catch (e: Throwable) {
+            // Nothing plays: let the app that played before continue
+            releasePlayer()
+            releaseSession()
+            throw e
+        }
+    }
+
+    private fun startPlayer(filePath: String) {
         activatePlaybackSession()
 
         val url = NSURL.fileURLWithPath(filePath)
@@ -66,13 +84,18 @@ actual class VoicePlayer actual constructor() {
 
             avPlayer.delegate = playbackEndDelegate
             finished = false
-            avPlayer.play()
             player = avPlayer
+            if (!avPlayer.play()) {
+                throw IllegalStateException("AVAudioPlayer.play() failed")
+            }
         }
     }
 
     actual fun pause() {
-        player?.takeIf { it.isPlaying() }?.pause()
+        val current = player ?: return
+        if (current.isPlaying()) current.pause()
+        // Paused by the user or by a system interruption: other apps may continue
+        releaseSession()
     }
 
     actual fun resume() {
@@ -92,7 +115,7 @@ actual class VoicePlayer actual constructor() {
 
     actual fun stop() {
         releasePlayer()
-        deactivateSession()
+        releaseSession()
     }
 
     private fun releasePlayer() {
@@ -125,6 +148,19 @@ actual class VoicePlayer actual constructor() {
                 )
             }
         }
+        holdsSession = true
+        PlaybackSessionUsers.players.add(this)
+    }
+
+    // Deactivates the shared session (notifying other apps, so their music continues) once no
+    // VoicePlayer plays any more. Pausing one voice message must not cut off another one that
+    // still plays, for example in a list of messages
+    private fun releaseSession() {
+        if (!holdsSession) return
+        holdsSession = false
+        // Players paused by a system interruption are dropped too: they no longer play
+        PlaybackSessionUsers.players.removeAll { it === this || !it.isPlaying }
+        if (PlaybackSessionUsers.players.isEmpty()) deactivateSession()
     }
 
     private fun deactivateSession() {
@@ -154,4 +190,9 @@ private class PlaybackEndDelegate(
     override fun audioPlayerDecodeErrorDidOccur(player: AVAudioPlayer, error: NSError?) {
         onEnded(player)
     }
+}
+
+/** VoicePlayers that activated the shared AVAudioSession and may still play. Main thread only. */
+private object PlaybackSessionUsers {
+    val players: MutableSet<VoicePlayer> = mutableSetOf()
 }

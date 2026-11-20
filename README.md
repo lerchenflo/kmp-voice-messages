@@ -69,12 +69,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.2`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.3`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-voice-messages/tags):
 
 ```toml
 [versions]
-kmpVoiceMessages = "1.0.2"
+kmpVoiceMessages = "1.0.3"
 
 [libraries]
 kmp-voice-messages = { module = "com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages", version.ref = "kmpVoiceMessages" }
@@ -136,7 +136,9 @@ The composables are built on two plain classes and one function, which you can u
 // Records into a file. On Android request RECORD_AUDIO before start().
 class VoiceRecorder() {
     val isRecording: Boolean
-    suspend fun start(filePath: String)
+    // Mic level while recording, 0 (silence) to 1 (loud), 0 when not recording. Poll every 50-100 ms.
+    val inputLevel: Float
+    suspend fun start(filePath: String)   // Android: throws IllegalStateException if the audio focus is denied
     fun stop()
 }
 
@@ -168,10 +170,21 @@ message pauses: `isPlaying` turns false and `isPaused` turns true, and it stays 
 
 - Android: transient audio focus (other apps pause, no ducking), audio marked as speech on the
   media stream. The library's manifest registers a small `ContentProvider`
-  (`VoiceMessagesInitProvider`) that hands the application context to `VoicePlayer`, so
-  `VoicePlayer()` needs no `Context`. Nothing to set up in the app.
-- iOS: the shared `AVAudioSession` with category Playback.
+  (`VoiceMessagesInitProvider`) that hands the application context to `VoicePlayer` and
+  `VoiceRecorder`, so they need no `Context`. Nothing to set up in the app.
+- iOS: the shared `AVAudioSession` with category Playback. It is deactivated (other apps notified)
+  once no `VoicePlayer` plays any more: on `pause()`, `stop()`, at the end and when `play()` fails.
 - Desktop: no audio focus; `isPaused` only turns true through `pause()`.
+
+While a recording runs, other apps' audio pauses too, so it doesn't end up in the recording, and
+it may continue once the recording is stopped or fails to start. Android uses transient exclusive
+audio focus (a focus loss while recording, such as an incoming call, keeps the recording running);
+iOS uses the `AVAudioSession` category Record.
+
+**Recording visualizer.** `VoiceRecorder.inputLevel` is the microphone level while recording, from
+0 (silence) to 1 (loud), linear in decibels from -60 dBFS to full scale, so normal speech moves it
+over most of the range. Poll it every 50 to 100 ms from one place (on Android every read returns
+the peak since the previous read).
 
 ## Usage
 
@@ -345,6 +358,20 @@ tried without a tag by using its short hash as version, for example
 `com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages:a1b2c3d`.
 
 ## Changelog
+
+### 1.0.3
+
+- iOS: the audio session is deactivated with "notify others" as soon as no voice message plays any
+  more (`pause()`, end of the message, failed `play()`, `stop()`), so the interrupted music app
+  continues, like on Android. `resume()` activates it again. Pausing one `VoicePlayer` doesn't cut
+  off another one that still plays. `play()` throws when `AVAudioPlayer.play()` fails.
+- Android: `VoiceRecorder` takes transient exclusive audio focus, so other apps' music pauses while
+  recording and isn't recorded. Given back on `stop()` and when `start()` fails. `start()` throws
+  `IllegalStateException` when the focus is denied (for example during a phone call). A focus loss
+  while recording keeps the recording running.
+- New `VoiceRecorder.inputLevel` on all platforms: the microphone level while recording, 0..1
+  (dB scale from -60 dBFS), 0 when not recording, for a moving recording visualizer.
+- Android `start()` releases the `MediaRecorder` when it can't be prepared or started.
 
 ### 1.0.2
 

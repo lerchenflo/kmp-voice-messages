@@ -20,10 +20,15 @@ internal val voiceMessageAudioAttributes: AudioAttributes = AudioAttributes.Buil
 
 /**
  * Transient audio focus for one voice message: other apps pause their audio (no ducking) while it
- * is held and continue once it is abandoned. [onLoss] runs on the main thread when another app
- * takes the audio (call, video, navigation prompt, other music app).
+ * is held and continue once it is abandoned. [focusGain] is AUDIOFOCUS_GAIN_TRANSIENT for playback
+ * and AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE for recording (no notification sounds either). [onLoss]
+ * runs on the main thread when another app takes the audio (call, video, navigation prompt, other
+ * music app).
  */
-internal class VoiceMessageAudioFocus(private val onLoss: () -> Unit) {
+internal class VoiceMessageAudioFocus(
+    private val focusGain: Int,
+    private val onLoss: () -> Unit = {},
+) {
 
     private val listener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -54,7 +59,7 @@ internal class VoiceMessageAudioFocus(private val onLoss: () -> Unit) {
             manager.requestAudioFocus(focusRequest())
         } else {
             @Suppress("DEPRECATION")
-            manager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            manager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, focusGain)
         }
         held = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         return held
@@ -76,7 +81,7 @@ internal class VoiceMessageAudioFocus(private val onLoss: () -> Unit) {
     // One request object for request and abandon: Android matches the abandon call by this object
     private fun focusRequest(): AudioFocusRequest {
         (focusRequest as? AudioFocusRequest)?.let { return it }
-        return AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        return AudioFocusRequest.Builder(focusGain)
             .setAudioAttributes(voiceMessageAudioAttributes)
             .setWillPauseWhenDucked(true)
             .setOnAudioFocusChangeListener(listener, Handler(Looper.getMainLooper()))

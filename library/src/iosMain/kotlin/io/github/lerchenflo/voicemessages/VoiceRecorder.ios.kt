@@ -24,6 +24,7 @@ import platform.AVFAudio.setActive
 import platform.CoreAudioTypes.kAudioFormatMPEG4AAC
 import platform.Foundation.NSError
 import platform.Foundation.NSURL
+import io.github.lerchenflo.voicemessages.internal.inputLevelFromDb
 
 @OptIn(ExperimentalForeignApi::class)
 actual class VoiceRecorder actual constructor() {
@@ -33,6 +34,14 @@ actual class VoiceRecorder actual constructor() {
 
     actual val isRecording: Boolean
         get() = recording
+
+    actual val inputLevel: Float
+        get() {
+            val current = recorder?.takeIf { recording } ?: return 0f
+            current.updateMeters()
+            // Peak power of the first channel in dBFS (-160..0)
+            return inputLevelFromDb(current.peakPowerForChannel(0u))
+        }
 
     actual suspend fun start(filePath: String) {
         val url = NSURL.fileURLWithPath(filePath)
@@ -86,6 +95,8 @@ actual class VoiceRecorder actual constructor() {
 
             // Set delegate to null and try to prepare
             avRecorder.setDelegate(null)
+            // Needed for peakPowerForChannel, read by inputLevel
+            avRecorder.meteringEnabled = true
 
             if (!avRecorder.prepareToRecord()) {
                 throw IllegalStateException(

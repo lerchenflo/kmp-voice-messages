@@ -1,5 +1,6 @@
 package io.github.lerchenflo.voicemessages
 
+import android.media.AudioManager
 import android.media.MediaPlayer
 import io.github.lerchenflo.voicemessages.internal.VoiceMessageAudioFocus
 import io.github.lerchenflo.voicemessages.internal.voiceMessageAudioAttributes
@@ -12,7 +13,10 @@ actual class VoicePlayer actual constructor() {
     @Volatile
     private var paused: Boolean = false
 
-    private val audioFocus = VoiceMessageAudioFocus(onLoss = ::pauseForFocusLoss)
+    private val audioFocus = VoiceMessageAudioFocus(
+        focusGain = AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+        onLoss = ::pauseForFocusLoss,
+    )
 
     actual val positionMs: Long
         get() = mediaPlayer?.let { runCatching { it.currentPosition.toLong() }.getOrDefault(0L) } ?: 0L

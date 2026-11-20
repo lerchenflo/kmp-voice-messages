@@ -1,6 +1,9 @@
 package io.github.lerchenflo.voicemessages
 
+import io.github.lerchenflo.voicemessages.internal.inputLevelFromPeak
 import java.io.File
+import java.io.FilterInputStream
+import java.io.InputStream
 import javax.sound.sampled.AudioFileFormat
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioInputStream
@@ -12,10 +15,16 @@ actual class VoiceRecorder actual constructor() {
 
     private var line: TargetDataLine? = null
     private var recordingThread: Thread? = null
+    private var meter: LevelMeteringInputStream? = null
+
+    @Volatile
     private var recording: Boolean = false
 
     actual val isRecording: Boolean
         get() = recording
+
+    actual val inputLevel: Float
+        get() = if (recording) inputLevelFromPeak(meter?.latestPeak ?: 0f) else 0f
 
     actual suspend fun start(filePath: String) {
         // Tuned for voice rather than music: mono 8 kHz (phone call quality) keeps the uncompressed
@@ -25,11 +34,16 @@ actual class VoiceRecorder actual constructor() {
         targetLine.open(format)
         targetLine.start()
         line = targetLine
+
+        // The samples pass through the meter on their way into the file, so inputLevel can read them
+        val levelMeter = LevelMeteringInputStream(AudioInputStream(targetLine))
+        meter = levelMeter
         recording = true
 
         val outFile = File(filePath)
         recordingThread = thread(name = "VoiceRecorder") {
-            AudioSystem.write(AudioInputStream(targetLine), AudioFileFormat.Type.WAVE, outFile)
+            val stream = AudioInputStream(levelMeter, format, AudioSystem.NOT_SPECIFIED.toLong())
+            AudioSystem.write(stream, AudioFileFormat.Type.WAVE, outFile)
         }
     }
 
@@ -40,6 +54,44 @@ actual class VoiceRecorder actual constructor() {
         recordingThread?.join()
         line = null
         recordingThread = null
+        meter = null
         recording = false
+    }
+}
+
+/**
+ * Passes 16-bit little-endian mono samples through and keeps the peak of the latest chunk.
+ * Reads at most [CHUNK_BYTES] at a time: AudioSystem.write asks for 4 kB (a quarter second at
+ * 8 kHz), which would update the level only four times a second.
+ */
+private class LevelMeteringInputStream(input: InputStream) : FilterInputStream(input) {
+
+    /** Peak of the latest chunk, 0..1 of full scale. */
+    @Volatile
+    var latestPeak: Float = 0f
+        private set
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        val count = super.read(b, off, minOf(len, CHUNK_BYTES))
+        if (count > 0) latestPeak = peakOf(b, off, count)
+        return count
+    }
+
+    private fun peakOf(b: ByteArray, off: Int, count: Int): Float {
+        var peak = 0
+        var i = off
+        val end = off + count - 1
+        while (i < end) {
+            val sample = (b[i].toInt() and 0xFF) or (b[i + 1].toInt() shl 8)
+            val magnitude = kotlin.math.abs(sample.toShort().toInt())
+            if (magnitude > peak) peak = magnitude
+            i += 2
+        }
+        return peak / 32_768f
+    }
+
+    private companion object {
+        // 50 ms of 8 kHz 16-bit mono audio; even, so a chunk never splits a sample
+        const val CHUNK_BYTES = 800
     }
 }
