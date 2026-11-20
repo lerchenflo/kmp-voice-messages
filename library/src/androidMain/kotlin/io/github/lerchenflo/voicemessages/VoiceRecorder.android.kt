@@ -28,7 +28,9 @@ actual class VoiceRecorder actual constructor() {
 
     actual suspend fun start(filePath: String) {
         // Taken before the microphone starts, so the other app's music has stopped as early as possible
-        check(audioFocus.request()) { "Audio focus denied: another app holds the audio, for example a phone call" }
+        if (!audioFocus.request()) {
+            throw VoiceMessageException.AudioBusy("Audio focus denied: another app holds the audio, for example a phone call")
+        }
 
         @Suppress("DEPRECATION") // No-arg constructor works on all supported API levels.
         val recorder = MediaRecorder()

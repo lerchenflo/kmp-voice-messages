@@ -61,7 +61,7 @@ actual class VoiceRecorder actual constructor() {
             )
             val categoryError = categoryErrorVar.value
             if (categoryError != null) {
-                throw IllegalStateException(
+                throw VoiceMessageException.AudioBusy(
                     "Failed to set AVAudioSession category: ${categoryError.localizedDescription}"
                 )
             }
@@ -70,7 +70,7 @@ actual class VoiceRecorder actual constructor() {
             session.setActive(true, error = activeErrorVar.ptr)
             val activeError = activeErrorVar.value
             if (activeError != null) {
-                throw IllegalStateException(
+                throw VoiceMessageException.AudioBusy(
                     "Failed to activate AVAudioSession: ${activeError.localizedDescription}"
                 )
             }

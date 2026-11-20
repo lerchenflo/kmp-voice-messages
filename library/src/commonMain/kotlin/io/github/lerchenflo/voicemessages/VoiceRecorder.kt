@@ -30,8 +30,9 @@ expect class VoiceRecorder() {
     /**
      * Starts recording into [filePath], overwriting it if it already exists.
      *
-     * @throws IllegalStateException on Android if the audio focus is denied, for example during a
-     * phone call (iOS: if the audio session can't be activated). Nothing records then.
+     * @throws VoiceMessageException.AudioBusy if the audio can't be taken from another app, for
+     * example during a phone call (Android: audio focus denied, iOS: audio session not activated).
+     * Nothing records then.
      */
     suspend fun start(filePath: String)
 

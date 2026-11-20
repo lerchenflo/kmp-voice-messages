@@ -6,11 +6,16 @@ A Kotlin Multiplatform library for recording and playing back **voice messages**
 
 ## What is it?
 
-`kmp-voice-messages` lets a KMP app:
-- **Record** a voice message with the bundled `VoiceMessageRecorder` composable, getting the finished recording back as a `ByteArray` in a callback.
-- **Play** a voice message back with the bundled `VoiceMessagePlayer` composable, given either a file path or the raw bytes.
-- Build its own UI on top of the lower-level `VoiceRecorder` / `VoicePlayer` classes instead.
-- Decide for itself how (and whether) to persist recordings — the library has no opinion on storage, naming, or a message list.
+`kmp-voice-messages` gives a KMP chat app everything for voice messages:
+- **Files**: `VoiceMessageFiles` stores, finds and deletes the voice files by bare file name.
+- **Playback**: `VoicePlaybackController` plays one voice message at a time (keyed by message id)
+  and publishes its progress as a `StateFlow`; it lives in a ViewModel.
+- **Recording**: `VoiceRecordingController` records into a new file, counts the time, stops at a
+  maximum length, keeps the unsent draft and provides live microphone levels.
+- **UI**: `VoiceMessagePlayer` (play/pause, slider, time) for a message bubble and
+  `VoiceMessageRecordingBar` (live bars while recording, draft player afterwards) for the input row.
+  Colours from `MaterialTheme.colorScheme`, every text a parameter.
+- The plain `VoiceRecorder` / `VoicePlayer` classes underneath, for your own UI.
 
 ## Supported platforms
 
@@ -33,16 +38,12 @@ with the pure-Java decoder JAAD (public domain, desktop only); Android and iOS p
 WAV files with their system players. The player reads the format from the file header, not from
 the file name.
 
-`VoiceMessageRecorder` writes to, and the `bytes`-based `VoiceMessagePlayer` overload writes a
-temporary copy to, an OS-appropriate scratch/cache directory by default — there's nothing to
-configure unless you want to (see [Public API](#public-api) below).
-
 ## Requirements
 
 | Item                  | Version / value                                                     |
 |-----------------------|---------------------------------------------------------------------|
 | Kotlin                | 2.4.20 or newer                                                     |
-| Compose Multiplatform | 1.12.1 or newer                                                     |
+| Compose Multiplatform | 1.12.2 or newer                                                     |
 | material3             | `org.jetbrains.compose.material3:material3` 1.12.0-alpha03 or newer |
 | Android               | minSdk 24, compileSdk 37                                            |
 | iOS                   | `iosArm64`, `iosSimulatorArm64` (no `iosX64`)                       |
@@ -69,12 +70,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.3`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.1.0`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-voice-messages/tags):
 
 ```toml
 [versions]
-kmpVoiceMessages = "1.0.3"
+kmpVoiceMessages = "1.1.0"
 
 [libraries]
 kmp-voice-messages = { module = "com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages", version.ref = "kmpVoiceMessages" }
@@ -101,36 +102,104 @@ All public API lives in the package `io.github.lerchenflo.voicemessages` (the co
 
 ## Public API
 
+Everything lives in `io.github.lerchenflo.voicemessages`, the composables in
+`io.github.lerchenflo.voicemessages.ui`. A chat screen needs three pieces: `VoiceMessageFiles`
+for the files, `VoicePlaybackController` and `VoiceRecordingController` in the ViewModel, and the
+composables `VoiceMessagePlayer` (message bubble) and `VoiceMessageRecordingBar` (input row).
+
 ```kotlin
-// Records a voice message; delivers the finished recording's bytes to onRecorded.
+// Voice files of the app in one folder, addressed by bare file name (an old absolute path also works)
+class VoiceMessageFiles(val directory: String, val fileNameSuffix: String = "_voicemsg.m4a") {
+    companion object {
+        // Android: Context.filesDir, iOS: Documents, desktop: app data folder <desktopAppName>
+        fun appStorage(desktopAppName: String, fileNameSuffix: String = "_voicemsg.m4a"): VoiceMessageFiles
+    }
+    fun path(fileName: String): String
+    fun exists(fileName: String): Boolean
+    fun newFileName(): String                                   // "<epoch ms>_voicemsg.m4a"
+    suspend fun save(fileName: String, bytes: ByteArray): String // returns the absolute path
+    suspend fun readBytes(fileName: String): ByteArray           // FileMissing if absent
+    suspend fun delete(fileName: String): Boolean
+    suspend fun deleteAll(): Int                                 // files ending with fileNameSuffix
+    suspend fun durationMs(fileName: String): Long               // 0 if unreadable
+}
+
+// One voice message at a time, keyed by id. Lives in a ViewModel, no Compose needed.
+class VoicePlaybackController(pollIntervalMs: Long = 100) {
+    val state: StateFlow<VoicePlaybackState>
+    fun play(id: String, filePath: String): Result<Unit> // resumes the paused id, else starts it
+    fun pause()
+    fun seekTo(id: String, positionMs: Long)              // another id: stops the current one, selects id paused there
+    fun stop()
+    fun release()                                         // ViewModel.onCleared
+}
+data class VoicePlaybackState(val id: String?, val isPlaying: Boolean, val positionMs: Long, val durationMs: Long)
+
+// One recording at a time into VoiceMessageFiles; stops by itself at maxDurationMs.
+class VoiceRecordingController(
+    files: VoiceMessageFiles,
+    playback: VoicePlaybackController? = null,  // stopped before a recording starts
+    val maxDurationMs: Long = 120_000,
+    levelCount: Int = 120,
+) {
+    val state: StateFlow<VoiceRecordingState>   // Idle, Recording(fileName, filePath, elapsedMs), Recorded(fileName, filePath, durationMs)
+    val levels: StateFlow<List<Float>>          // live mic levels 0..1, oldest first, every ~50 ms
+    suspend fun start(): Result<VoiceRecordingState.Recording> // ask for the mic permission first
+    suspend fun stop(): Result<VoiceRecordingState.Recorded>   // length measured from the file
+    suspend fun discard(): Result<Unit>                        // stops and deletes the file
+    suspend fun clear()                                        // forgets the draft after sending (file stays)
+    fun release()
+    companion object { const val DRAFT_PLAYBACK_ID: String }   // playback id of the unsent draft
+}
+
+// Failures, as Result.failure or thrown by VoicePlayer / VoiceRecorder. All are IllegalStateExceptions.
+sealed class VoiceMessageException {
+    class AudioBusy   // another app holds the audio, e.g. a phone call: nothing plays or records
+    class FileMissing(val filePath: String)
+    class Failed      // anything else, see cause
+}
+
+// Message bubble: play/pause, slider (drag pauses, release seeks), time "m:ss/\nm:ss"
 @Composable
-fun VoiceMessageRecorder(
+fun VoiceMessagePlayer(
+    id: String, filePath: String,
+    playback: StateFlow<VoicePlaybackState>,
+    texts: VoiceMessagePlayerTexts,                 // play, pause, position (screen reader texts)
+    onPlay: () -> Unit, onPause: () -> Unit, onSeek: (positionMs: Long) -> Unit,
     modifier: Modifier = Modifier,
-    onRecorded: (bytes: ByteArray) -> Unit,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant, // unplayed track: same at 30 %
+    durationMs: Long = 0,                          // 0 reads the length from the file
+    formatTime: (Long) -> String = ::formatVoiceMessageTime,
 )
 
-// Plays back a voice message already saved at filePath.
+// Input row: dot, elapsed time, live bars, countdown after 80 %; the draft player once stopped;
+// delete button. Shows nothing while Idle. The record/stop/send button stays in the app.
 @Composable
-fun VoiceMessagePlayer(filePath: String, modifier: Modifier = Modifier)
+fun VoiceMessageRecordingBar(
+    state: VoiceRecordingState,
+    levels: StateFlow<List<Float>>,
+    playback: StateFlow<VoicePlaybackState>,
+    maxDurationMs: Long,
+    texts: VoiceMessageRecordingBarTexts,          // recording, discard, player texts
+    onPlay: () -> Unit, onPause: () -> Unit, onSeek: (positionMs: Long) -> Unit, onDiscard: () -> Unit,
+    modifier: Modifier = Modifier,
+    formatTime: (Long) -> String = ::formatVoiceMessageTime,
+)
 
-// Plays back a voice message held in memory, writing it to filePath first
-// (a random scratch file by default — pass your own to control where it lands).
+// The live bars alone
 @Composable
-fun VoiceMessagePlayer(bytes: ByteArray, filePath: String? = null, modifier: Modifier = Modifier)
+fun VoiceMessageLevelBars(levels: StateFlow<List<Float>>, color: Color, modifier: Modifier = Modifier)
+
+fun formatVoiceMessageTime(ms: Long): String   // "m:ss"
 ```
 
-Both composables come with their own self-contained UI: `VoiceMessageRecorder` shows a
-record/stop button with elapsed time while recording; `VoiceMessagePlayer` shows a play/pause
-button, a progress bar, and the current position alongside the full length (e.g. `0:05 / 1:23`).
+Colours come only from `MaterialTheme.colorScheme` (`primaryContainer`, `primary`, `error`,
+`onSurface`, and the `color` you pass), so the app's themes apply. The library has no
+translations: every screen reader text is a parameter.
 
-**`VoiceMessagePlayer` only reads metadata up front.** As soon as it's composed, it reads just
-the audio file's duration from its header — not the audio itself — so the full length shows
-immediately even in a long list of messages. The audio is only loaded and decoded once the user
-taps play.
+### Low-level classes
 
-### Building your own UI
-
-The composables are built on two plain classes and one function, which you can use directly:
+The controllers are built on two plain classes, which you can use directly:
 
 ```kotlin
 // Records into a file. On Android request RECORD_AUDIO before start().
@@ -138,7 +207,7 @@ class VoiceRecorder() {
     val isRecording: Boolean
     // Mic level while recording, 0 (silence) to 1 (loud), 0 when not recording. Poll every 50-100 ms.
     val inputLevel: Float
-    suspend fun start(filePath: String)   // Android: throws IllegalStateException if the audio focus is denied
+    suspend fun start(filePath: String)   // throws VoiceMessageException.AudioBusy if another app holds the audio
     fun stop()
 }
 
@@ -150,7 +219,7 @@ class VoicePlayer() {
     // Loaded and paused (by pause() or by another app taking the audio): resume() continues.
     // False while playing, after the end, after stop() and before the first play().
     val isPaused: Boolean
-    fun play(filePath: String)   // throws IllegalStateException if another app holds the audio (phone call)
+    fun play(filePath: String, startPositionMs: Long = 0) // throws VoiceMessageException.AudioBusy
     fun pause()
     fun resume()                 // same exception; the message then stays paused
     fun seekTo(positionMs: Long)
@@ -161,108 +230,104 @@ class VoicePlayer() {
 fun voiceMessageDurationMs(filePath: String): Long
 ```
 
+## Usage
+
+A chat screen with an MVI ViewModel. The ViewModel owns the controllers and reports failures:
+
+```kotlin
+class ChatViewModel : ViewModel() {
+    val files = VoiceMessageFiles.appStorage(desktopAppName = "MyApp")
+    val playback = VoicePlaybackController()
+    val recording = VoiceRecordingController(files, playback)
+
+    fun play(id: String, fileName: String) {
+        playback.play(id, files.path(fileName)).onFailure { showError(it) }
+    }
+    fun pause() = playback.pause()
+    fun seek(id: String, positionMs: Long) = playback.seekTo(id, positionMs)
+
+    fun startRecording() = viewModelScope.launch {
+        // ask for the microphone permission first
+        recording.start().onFailure { showError(it) } // AudioBusy during a phone call
+    }
+    fun stopRecording() = viewModelScope.launch { recording.stop().onFailure { showError(it) } }
+    fun discardRecording() = viewModelScope.launch { recording.discard() }
+    fun playDraft() {
+        val draft = recording.state.value as? VoiceRecordingState.Recorded ?: return
+        playback.play(VoiceRecordingController.DRAFT_PLAYBACK_ID, draft.filePath).onFailure { showError(it) }
+    }
+    fun sendRecording() = viewModelScope.launch {
+        val draft = recording.state.value as? VoiceRecordingState.Recorded ?: return@launch
+        upload(draft.fileName)
+        recording.clear()
+    }
+
+    override fun onCleared() {
+        recording.release()
+        playback.release()
+    }
+}
+```
+
+In the message bubble:
+
+```kotlin
+VoiceMessagePlayer(
+    id = message.id,
+    filePath = viewModel.files.path(message.fileName),
+    playback = viewModel.playback.state,
+    texts = VoiceMessagePlayerTexts(play = stringResource(Res.string.play), pause = ..., position = ...),
+    onPlay = { viewModel.play(message.id, message.fileName) },
+    onPause = viewModel::pause,
+    onSeek = { viewModel.seek(message.id, it) },
+    color = if (isOwnMessage) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+)
+```
+
+In the input row, next to the app's own record/stop/send button:
+
+```kotlin
+val recordingState by viewModel.recording.state.collectAsState()
+VoiceMessageRecordingBar(
+    state = recordingState,
+    levels = viewModel.recording.levels,
+    playback = viewModel.playback.state,
+    maxDurationMs = viewModel.recording.maxDurationMs,
+    texts = VoiceMessageRecordingBarTexts(recording = ..., discard = ..., player = playerTexts),
+    onPlay = viewModel::playDraft,
+    onPause = viewModel::pause,
+    onSeek = { viewModel.seek(VoiceRecordingController.DRAFT_PLAYBACK_ID, it) },
+    onDiscard = viewModel::discardRecording,
+    modifier = Modifier.weight(1f),
+)
+```
+
 **Other apps' audio.** While a voice message plays, music and podcasts of other apps pause, and
 they continue once the voice message is paused, stopped, finished or fails to play. When another
 app takes the audio (a phone call, a video, a navigation prompt, another music app), the voice
-message pauses: `isPlaying` turns false and `isPaused` turns true, and it stays paused until
-`resume()`. So when you poll `isPlaying` to detect the end of a message, check `isPaused` too:
-`!isPlaying && !isPaused` means finished or stopped.
+message pauses and stays paused (`VoicePlaybackState.isPlaying` false, same `id` and position)
+until it is played again.
 
 - Android: transient audio focus (other apps pause, no ducking), audio marked as speech on the
   media stream. The library's manifest registers a small `ContentProvider`
-  (`VoiceMessagesInitProvider`) that hands the application context to `VoicePlayer` and
-  `VoiceRecorder`, so they need no `Context`. Nothing to set up in the app.
+  (`VoiceMessagesInitProvider`) that hands the application context to the library, so nothing
+  needs a `Context`. Nothing to set up in the app.
 - iOS: the shared `AVAudioSession` with category Playback. It is deactivated (other apps notified)
-  once no `VoicePlayer` plays any more: on `pause()`, `stop()`, at the end and when `play()` fails.
-- Desktop: no audio focus; `isPaused` only turns true through `pause()`.
+  once no `VoicePlayer` plays any more: on pause, stop, at the end and when playing fails.
+- Desktop: no audio focus.
 
 While a recording runs, other apps' audio pauses too, so it doesn't end up in the recording, and
 it may continue once the recording is stopped or fails to start. Android uses transient exclusive
 audio focus (a focus loss while recording, such as an incoming call, keeps the recording running);
 iOS uses the `AVAudioSession` category Record.
 
-**Recording visualizer.** `VoiceRecorder.inputLevel` is the microphone level while recording, from
-0 (silence) to 1 (loud), linear in decibels from -60 dBFS to full scale, so normal speech moves it
-over most of the range. Poll it every 50 to 100 ms from one place (on Android every read returns
-the peak since the previous read).
-
-## Usage
-
-### Record, then play it straight back from memory
-
-The simplest case: keep the recorded bytes around and hand them straight to
-`VoiceMessagePlayer` — no file management of your own required.
-
-```kotlin
-@Composable
-fun MyScreen() {
-    var lastRecording by remember { mutableStateOf<ByteArray?>(null) }
-
-    VoiceMessageRecorder(onRecorded = { bytes -> lastRecording = bytes })
-
-    lastRecording?.let { bytes ->
-        VoiceMessagePlayer(bytes = bytes)
-    }
-}
-```
-
-### A scrollable list of recordings
-
-The pattern the `:example` module uses: collect recordings as they come in and show each one
-in a `LazyColumn`. Each `VoiceMessagePlayer` manages its own play/pause state independently.
-
-```kotlin
-@Composable
-fun VoiceMessagesScreen() {
-    val messages = remember { mutableStateListOf<ByteArray>() }
-
-    VoiceMessageRecorder(onRecorded = { bytes -> messages.add(bytes) })
-
-    LazyColumn {
-        items(messages) { bytes ->
-            VoiceMessagePlayer(bytes = bytes, modifier = Modifier.fillMaxWidth())
-        }
-    }
-}
-```
-
-### Playing back a file you already saved yourself
-
-If you persist recordings yourself (e.g. in a database row, or a file your app manages), use
-the `filePath` overload directly — no need to round-trip through bytes at all.
-
-```kotlin
-@Composable
-fun SavedMessageRow(savedFilePath: String) {
-    VoiceMessagePlayer(filePath = savedFilePath)
-}
-```
-
-### Choosing exactly where a recording's bytes get written
-
-By default, the `bytes` overload writes to a randomly named scratch file that's deleted once
-the composable leaves composition. Pass your own `filePath` to control where it's written and
-to keep the file around afterwards — handy if you want to persist the recording permanently
-once the user is happy with it.
-
-```kotlin
-@Composable
-fun MyScreen(voiceMessagesDir: String) {
-    var recording by remember { mutableStateOf<Pair<ByteArray, String>?>(null) }
-
-    VoiceMessageRecorder(onRecorded = { bytes ->
-        recording = bytes to "$voiceMessagesDir/greeting.tmp"
-    })
-
-    recording?.let { (bytes, path) ->
-        VoiceMessagePlayer(bytes = bytes, filePath = path)
-    }
-}
-```
+**Live bars.** `VoiceRecordingController.levels` reads `VoiceRecorder.inputLevel` every 50 ms: 0
+(silence) to 1 (loud), linear in decibels from -60 dBFS to full scale. On Android every read of
+`inputLevel` returns the peak since the previous read, so only the controller reads it.
 
 ## Platform setup
 
-- **Android**: add `<uses-permission android:name="android.permission.RECORD_AUDIO" />` to your app's manifest, and request the runtime permission before showing `VoiceMessageRecorder`.
+- **Android**: add `<uses-permission android:name="android.permission.RECORD_AUDIO" />` to your app's manifest, and request the runtime permission before `VoiceRecordingController.start()`.
 - **iOS**: add `NSMicrophoneUsageDescription` to your app's `Info.plist`.
 - **Desktop**: uses the default system audio devices. A packaged macOS app needs
   `NSMicrophoneUsageDescription` in its bundle, otherwise macOS blocks the microphone. With
@@ -287,10 +352,10 @@ fun MyScreen(voiceMessagesDir: String) {
 
 ## Example app
 
-The `:example` and `:example-android` modules show the library end to end: a screen with a
-recorder button and a scrollable list of recorded messages you can play back, built on
-`VoiceMessageRecorder` and `VoiceMessagePlayer`. Both always use the library source of this
-repository, so changes can be tried before a release.
+The `:example` and `:example-android` modules show the library end to end: a chat-like screen
+with a record/stop/send button, the `VoiceMessageRecordingBar` with live bars and the draft
+player, and a list of "sent" messages played with `VoiceMessagePlayer`. Both always use the library
+source of this repository, so changes can be tried before a release.
 
 - `:example` is a Kotlin Multiplatform module with the shared screen (`VoiceMessagesExampleScreen`)
   plus a desktop entry point. Run it with:
@@ -358,6 +423,29 @@ tried without a tag by using its short hash as version, for example
 `com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages:a1b2c3d`.
 
 ## Changelog
+
+### 1.1.0
+
+Breaking: the voice message code of the Schneaggchat app moved into the library.
+
+- New `VoiceMessageFiles`: voice files in one folder by bare file name (path, exists, new file
+  name, save, read, delete, delete all, duration); `appStorage(desktopAppName)` uses the app's
+  persistent storage (Android `filesDir`, iOS Documents, desktop app data folder).
+- New `VoicePlaybackController` and `VoicePlaybackState`: one voice message at a time keyed by
+  id, progress as `StateFlow`, pause, seek, paused by other apps without losing the position.
+  Seeking a message that is not selected stops the current one and selects it paused there.
+- New `VoiceRecordingController` and `VoiceRecordingState`: records into a new file, elapsed time,
+  stop at a maximum length (2 minutes by default), real length measured from the file, unsent
+  draft, live microphone `levels`.
+- New composables `VoiceMessagePlayer` (play/pause, slider, time; replaces the old
+  `VoiceMessagePlayer(filePath)` / `VoiceMessagePlayer(bytes)`), `VoiceMessageRecordingBar` and
+  `VoiceMessageLevelBars`. `VoiceMessageRecorder` is removed.
+- New `VoiceMessageException` (`AudioBusy`, `FileMissing`, `Failed`). `VoicePlayer` and
+  `VoiceRecorder` throw `AudioBusy` when another app holds the audio (still an
+  `IllegalStateException`). The controllers return failures as `Result`.
+- `VoicePlayer.play(filePath, startPositionMs)` starts at a position.
+- New `formatVoiceMessageTime(ms)` ("m:ss").
+- Built against Compose Multiplatform 1.12.2.
 
 ### 1.0.3
 

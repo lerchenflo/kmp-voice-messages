@@ -51,10 +51,10 @@ actual class VoicePlayer actual constructor() {
     actual val isPaused: Boolean
         get() = player?.let { !it.isPlaying() && !finished } ?: false
 
-    actual fun play(filePath: String) {
+    actual fun play(filePath: String, startPositionMs: Long) {
         releasePlayer()
         try {
-            startPlayer(filePath)
+            startPlayer(filePath, startPositionMs)
         } catch (e: Throwable) {
             // Nothing plays: let the app that played before continue
             releasePlayer()
@@ -63,7 +63,7 @@ actual class VoicePlayer actual constructor() {
         }
     }
 
-    private fun startPlayer(filePath: String) {
+    private fun startPlayer(filePath: String, startPositionMs: Long) {
         activatePlaybackSession()
 
         val url = NSURL.fileURLWithPath(filePath)
@@ -82,6 +82,7 @@ actual class VoicePlayer actual constructor() {
                 throw IllegalStateException("AVAudioPlayer.prepareToPlay() failed")
             }
 
+            if (startPositionMs > 0) avPlayer.currentTime = startPositionMs / 1_000.0
             avPlayer.delegate = playbackEndDelegate
             finished = false
             player = avPlayer
@@ -134,7 +135,7 @@ actual class VoicePlayer actual constructor() {
             session.setCategory(AVAudioSessionCategoryPlayback, error = categoryErrorVar.ptr)
             val categoryError = categoryErrorVar.value
             if (categoryError != null) {
-                throw IllegalStateException(
+                throw VoiceMessageException.AudioBusy(
                     "Failed to set AVAudioSession category for playback: ${categoryError.localizedDescription}"
                 )
             }
@@ -143,7 +144,7 @@ actual class VoicePlayer actual constructor() {
             session.setActive(true, error = activeErrorVar.ptr)
             val activeError = activeErrorVar.value
             if (activeError != null) {
-                throw IllegalStateException(
+                throw VoiceMessageException.AudioBusy(
                     "Failed to activate AVAudioSession for playback: ${activeError.localizedDescription}"
                 )
             }

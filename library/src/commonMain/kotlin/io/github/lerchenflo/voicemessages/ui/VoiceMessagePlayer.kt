@@ -1,148 +1,143 @@
 package io.github.lerchenflo.voicemessages.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import io.github.lerchenflo.voicemessages.VoicePlayer
-import io.github.lerchenflo.voicemessages.internal.deleteVoiceMessageFile
-import io.github.lerchenflo.voicemessages.internal.ensureParentDirectoryExists
-import io.github.lerchenflo.voicemessages.internal.formatDurationMs
+import io.github.lerchenflo.voicemessages.VoicePlaybackController
+import io.github.lerchenflo.voicemessages.VoicePlaybackState
+import io.github.lerchenflo.voicemessages.formatVoiceMessageTime
 import io.github.lerchenflo.voicemessages.internal.probeDurationMs
-import io.github.lerchenflo.voicemessages.internal.randomFileName
-import io.github.lerchenflo.voicemessages.internal.rememberVoiceMessagesCacheDir
-import io.github.lerchenflo.voicemessages.internal.writeVoiceMessageBytes
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 /**
- * Plays back the voice message at [filePath]: a play/pause button, a progress bar, and the
- * current playback position alongside the full length (e.g. "0:05 / 1:23").
+ * Screen reader texts of [VoiceMessagePlayer], from the app's own string resources.
  *
- * Only the file's duration metadata is read up front; the audio itself isn't loaded or
- * decoded until the user taps play.
+ * @property play description of the play button.
+ * @property pause description of the pause button.
+ * @property position description of the position slider.
+ */
+@Immutable
+data class VoiceMessagePlayerTexts(
+    val play: String,
+    val pause: String,
+    val position: String,
+)
+
+/**
+ * A voice message row: play/pause button, position slider and the time as "m:ss/\nm:ss"
+ * (current/total). Shows the progress of [playback] when it has [id] selected; before the first
+ * play the length is read from the file header (or taken from [durationMs]).
+ *
+ * Dragging or tapping the slider pauses the message and seeks on release ([onSeek], wire it to
+ * [VoicePlaybackController.seekTo]); for a message that is not the selected one this selects it
+ * paused at that point.
+ *
+ * @param id the message, as used with [VoicePlaybackController.play].
+ * @param filePath absolute path of the file, only read here for its length.
+ * @param playback [VoicePlaybackController.state]. Collected inside, so the progress ticks
+ * recompose only this row.
+ * @param color button, played track, thumb and text; the rest of the track uses it at 30 %.
+ * Pass a `MaterialTheme.colorScheme` role, for example `onPrimaryContainer` in the own bubble.
+ * @param durationMs known length, for example a freshly measured recording; 0 reads it from the file.
+ * @param formatTime formats the two times.
  */
 @Composable
 fun VoiceMessagePlayer(
+    id: String,
     filePath: String,
+    playback: StateFlow<VoicePlaybackState>,
+    texts: VoiceMessagePlayerTexts,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onSeek: (positionMs: Long) -> Unit,
     modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    durationMs: Long = 0L,
+    formatTime: (Long) -> String = ::formatVoiceMessageTime,
 ) {
-    val player = remember(filePath) { VoicePlayer() }
-    var isPlaying by remember(filePath) { mutableStateOf(false) }
-    var positionMs by remember(filePath) { mutableStateOf(0L) }
-    var durationMs by remember(filePath) { mutableStateOf(0L) }
+    val state by playback.collectAsState()
+    val isSelected = state.id == id
+    val isPlaying = isSelected && state.isPlaying
 
-    LaunchedEffect(filePath) {
-        durationMs = probeDurationMs(filePath)
+    var fileDurationMs by remember(filePath) { mutableLongStateOf(durationMs) }
+    LaunchedEffect(filePath, durationMs) {
+        fileDurationMs = if (durationMs > 0) durationMs else withContext(Dispatchers.IO) { probeDurationMs(filePath) }
     }
+    val duration = if (isSelected && state.durationMs > 0) state.durationMs else fileDurationMs
+    val position = if (isSelected) state.positionMs else 0L
 
-    DisposableEffect(filePath) {
-        onDispose { player.stop() }
-    }
-
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            positionMs = player.positionMs
-            if (!player.isPlaying) {
-                isPlaying = false
-            }
-            delay(200)
-        }
-    }
+    // Position under the finger while dragging, null otherwise
+    var dragPositionMs by remember(id) { mutableStateOf<Float?>(null) }
+    val shownPositionMs = (dragPositionMs ?: position.toFloat()).coerceIn(0f, duration.toFloat().coerceAtLeast(0f))
 
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        FilledIconButton(
-            onClick = {
-                if (isPlaying) {
-                    player.pause()
-                    isPlaying = false
-                } else {
-                    // Continue where it stopped after a pause (the user's or one by another app
-                    // taking the audio), start from the beginning otherwise
-                    isPlaying = runCatching {
-                        if (player.isPaused) player.resume() else player.play(filePath)
-                    }.isSuccess
-                }
-            },
-        ) {
+        IconButton(onClick = { if (isPlaying) onPause() else onPlay() }) {
             Icon(
                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
+                contentDescription = if (isPlaying) texts.pause else texts.play,
+                tint = color,
             )
         }
 
-        val progress = if (durationMs > 0) {
-            (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.weight(1f),
+        Spacer(Modifier.width(4.dp))
+
+        Slider(
+            value = shownPositionMs,
+            onValueChange = {
+                if (dragPositionMs == null && isPlaying) onPause()
+                dragPositionMs = it
+            },
+            onValueChangeFinished = {
+                dragPositionMs?.let { onSeek(it.toLong()) }
+                dragPositionMs = null
+            },
+            valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
+            colors = SliderDefaults.colors(
+                thumbColor = color,
+                activeTrackColor = color,
+                inactiveTrackColor = color.copy(alpha = 0.3f),
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .semantics { contentDescription = texts.position },
         )
+
+        Spacer(Modifier.width(8.dp))
 
         Text(
-            text = "${formatDurationMs(positionMs)} / ${formatDurationMs(durationMs)}",
-            style = MaterialTheme.typography.labelLarge,
+            text = "${formatTime(shownPositionMs.toLong())}/\n${formatTime(duration)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
         )
-    }
-}
-
-/**
- * Plays back the voice message held in [bytes]. The bytes are written to [filePath] once,
- * then played back through the [filePath]-based overload above — which reads only that
- * file's duration metadata up front and defers loading the audio itself until play is tapped.
- *
- * @param filePath where to write [bytes] before playing them back. Defaults to a randomly
- * named file in the library's scratch cache directory, which is deleted once this composable
- * leaves composition. Pass your own path (e.g. a file you already manage) to control exactly
- * where it's written and to keep the file around afterwards — otherwise every call writes to
- * a fresh, randomly named file with no way to know or reuse its location.
- */
-@Composable
-fun VoiceMessagePlayer(
-    bytes: ByteArray,
-    filePath: String? = null,
-    modifier: Modifier = Modifier,
-) {
-    val cacheDir = rememberVoiceMessagesCacheDir()
-    val resolvedFilePath = remember(cacheDir, filePath, bytes) {
-        filePath ?: "$cacheDir/${randomFileName("playback")}.tmp"
-    }
-    var isReady by remember(resolvedFilePath) { mutableStateOf(false) }
-
-    if (filePath == null) {
-        DisposableEffect(resolvedFilePath) {
-            onDispose { deleteVoiceMessageFile(resolvedFilePath) }
-        }
-    }
-
-    LaunchedEffect(resolvedFilePath, bytes) {
-        ensureParentDirectoryExists(resolvedFilePath)
-        writeVoiceMessageBytes(resolvedFilePath, bytes)
-        isReady = true
-    }
-
-    if (isReady) {
-        VoiceMessagePlayer(filePath = resolvedFilePath, modifier = modifier)
     }
 }

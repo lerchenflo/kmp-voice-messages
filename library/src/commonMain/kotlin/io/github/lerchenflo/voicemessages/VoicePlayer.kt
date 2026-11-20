@@ -32,13 +32,13 @@ expect class VoicePlayer() {
     val isPaused: Boolean
 
     /**
-     * Starts playing the voice message at [filePath] from the beginning.
+     * Starts playing the voice message at [filePath] at [startPositionMs] (the beginning by default).
      *
-     * @throws IllegalStateException if the audio can't be taken from another app, for example
-     * during a phone call (Android: audio focus denied, iOS: audio session not activated).
+     * @throws VoiceMessageException.AudioBusy if the audio can't be taken from another app, for
+     * example during a phone call (Android: audio focus denied, iOS: audio session not activated).
      * Nothing plays then.
      */
-    fun play(filePath: String)
+    fun play(filePath: String, startPositionMs: Long = 0L)
 
     /** Pauses playback and hands the audio back to other apps. No-op if not currently playing. */
     fun pause()
@@ -47,8 +47,8 @@ expect class VoicePlayer() {
      * Resumes playback from the paused position and takes the audio from other apps again.
      * No-op if currently playing.
      *
-     * @throws IllegalStateException if the audio can't be taken from another app, for example
-     * during a phone call. The voice message then stays paused.
+     * @throws VoiceMessageException.AudioBusy if the audio can't be taken from another app, for
+     * example during a phone call. The voice message then stays paused.
      */
     fun resume()
 

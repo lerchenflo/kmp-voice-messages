@@ -30,13 +30,14 @@ actual class VoicePlayer actual constructor() {
     actual val isPaused: Boolean
         get() = paused
 
-    actual fun play(filePath: String) {
+    actual fun play(filePath: String, startPositionMs: Long) {
         stop()
         val player = MediaPlayer()
         try {
             player.setAudioAttributes(voiceMessageAudioAttributes)
             player.setDataSource(filePath)
             player.prepare()
+            if (startPositionMs > 0) player.seekTo(startPositionMs.toInt())
         } catch (e: Exception) {
             player.release()
             throw e
@@ -50,7 +51,7 @@ actual class VoicePlayer actual constructor() {
 
         if (!audioFocus.request()) {
             stop()
-            throw IllegalStateException(AUDIO_FOCUS_DENIED)
+            throw VoiceMessageException.AudioBusy(AUDIO_FOCUS_DENIED)
         }
         try {
             player.start()
@@ -73,7 +74,7 @@ actual class VoicePlayer actual constructor() {
         val player = mediaPlayer ?: return
         if (player.isPlayingSafe()) return
         // Stays paused when another app holds the audio, for example during a phone call
-        check(audioFocus.request()) { AUDIO_FOCUS_DENIED }
+        if (!audioFocus.request()) throw VoiceMessageException.AudioBusy(AUDIO_FOCUS_DENIED)
         player.start()
         paused = false
     }

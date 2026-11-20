@@ -31,6 +31,7 @@ kotlin {
             implementation(libs.foundation)
             implementation(libs.material3)
             implementation(libs.ui)
+            implementation(libs.material.icons.extended)
         }
 
         jvmMain.dependencies {

@@ -34,7 +34,7 @@ actual class VoicePlayer actual constructor() {
     actual val isPaused: Boolean
         get() = paused
 
-    actual fun play(filePath: String) {
+    actual fun play(filePath: String, startPositionMs: Long) {
         stop()
         val file = File(filePath)
         val newClip = AudioSystem.getClip()
@@ -58,6 +58,7 @@ actual class VoicePlayer actual constructor() {
                 paused = false
             }
         }
+        if (startPositionMs > 0) newClip.microsecondPosition = startPositionMs * 1_000
         clip = newClip
         playing = true
         newClip.start()

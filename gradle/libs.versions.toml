@@ -10,7 +10,7 @@ android-compileSdk = "37"
 agp = "9.4.1"
 
 kotlin = "2.4.20"
-composeMultiplatform = "1.12.1" #Plugin and all Compose core libraries (runtime, ui, foundation)
+composeMultiplatform = "1.12.2" #Plugin and all Compose core libraries (runtime, ui, foundation)
 material3 = "1.12.0-alpha03" #Must be the material3 version listed next to composeMultiplatform in the CMP release notes
 materialIconsExtended = "1.7.3" #Last published version, the artifact is frozen
 kotlinxCoroutines = "1.11.0"
