@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Hands the application context to VoicePlayer at app start, so VoicePlayer() keeps its
+             no-argument constructor in shared code and can still request audio focus -->
+        <provider
+            android:name="io.github.lerchenflo.voicemessages.internal.VoiceMessagesInitProvider"
+            android:authorities="${applicationId}.voicemessages-init"
+            android:exported="false" />
+    </application>
+</manifest>

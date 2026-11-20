@@ -76,7 +76,11 @@ fun VoiceMessagePlayer(
                     player.pause()
                     isPlaying = false
                 } else {
-                    isPlaying = runCatching { player.play(filePath) }.isSuccess
+                    // Continue where it stopped after a pause (the user's or one by another app
+                    // taking the audio), start from the beginning otherwise
+                    isPlaying = runCatching {
+                        if (player.isPaused) player.resume() else player.play(filePath)
+                    }.isSuccess
                 }
             },
         ) {

@@ -18,6 +18,10 @@ actual class VoicePlayer actual constructor() {
     @Volatile
     private var playing: Boolean = false
 
+    // Set by pause() only: the desktop has no other app that takes the audio away
+    @Volatile
+    private var paused: Boolean = false
+
     actual val positionMs: Long
         get() = clip?.let { it.microsecondPosition / 1_000 } ?: 0L
 
@@ -26,6 +30,9 @@ actual class VoicePlayer actual constructor() {
 
     actual val isPlaying: Boolean
         get() = playing
+
+    actual val isPaused: Boolean
+        get() = paused
 
     actual fun play(filePath: String) {
         stop()
@@ -48,6 +55,7 @@ actual class VoicePlayer actual constructor() {
             // STOP also fires on pause(); only the end of the audio ends playback here
             if (event.type == LineEvent.Type.STOP && newClip.framePosition >= newClip.frameLength) {
                 playing = false
+                paused = false
             }
         }
         clip = newClip
@@ -56,14 +64,17 @@ actual class VoicePlayer actual constructor() {
     }
 
     actual fun pause() {
+        val currentClip = clip ?: return
+        if (playing && currentClip.framePosition < currentClip.frameLength) paused = true
         playing = false
-        clip?.takeIf { it.isRunning }?.stop()
+        if (currentClip.isRunning) currentClip.stop()
     }
 
     actual fun resume() {
         val currentClip = clip ?: return
         if (currentClip.framePosition >= currentClip.frameLength) return
         playing = true
+        paused = false
         if (!currentClip.isRunning) currentClip.start()
     }
 
@@ -73,6 +84,7 @@ actual class VoicePlayer actual constructor() {
 
     actual fun stop() {
         playing = false
+        paused = false
         val currentClip = clip ?: return
         currentClip.stop()
         currentClip.close()

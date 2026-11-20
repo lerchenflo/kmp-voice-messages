@@ -8,17 +8,29 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.value
 import platform.AVFAudio.AVAudioPlayer
+import platform.AVFAudio.AVAudioPlayerDelegateProtocol
 import platform.AVFAudio.AVAudioSession
 import platform.AVFAudio.AVAudioSessionCategoryPlayback
 import platform.AVFAudio.AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
 import platform.AVFAudio.setActive
 import platform.Foundation.NSError
 import platform.Foundation.NSURL
+import platform.darwin.NSObject
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 actual class VoicePlayer actual constructor() {
 
     private var player: AVAudioPlayer? = null
+
+    // Set when the loaded voice message reached its end (or failed to decode), so isPaused can
+    // tell that apart from a pause. AVAudioPlayer also pauses by itself when another app takes the
+    // audio (phone call, other app's audio session); that pause counts as paused, not as finished.
+    private var finished: Boolean = false
+
+    // AVAudioPlayer holds its delegate weakly, so the player keeps it here
+    private val playbackEndDelegate = PlaybackEndDelegate { endedPlayer ->
+        if (endedPlayer === player) finished = true
+    }
 
     actual val positionMs: Long
         get() = player?.let { (it.currentTime * 1_000).toLong() } ?: 0L
@@ -28,6 +40,9 @@ actual class VoicePlayer actual constructor() {
 
     actual val isPlaying: Boolean
         get() = player?.isPlaying() ?: false
+
+    actual val isPaused: Boolean
+        get() = player?.let { !it.isPlaying() && !finished } ?: false
 
     actual fun play(filePath: String) {
         releasePlayer()
@@ -49,6 +64,8 @@ actual class VoicePlayer actual constructor() {
                 throw IllegalStateException("AVAudioPlayer.prepareToPlay() failed")
             }
 
+            avPlayer.delegate = playbackEndDelegate
+            finished = false
             avPlayer.play()
             player = avPlayer
         }
@@ -65,6 +82,7 @@ actual class VoicePlayer actual constructor() {
         // session on Record, which would make this resume silent.
         activatePlaybackSession()
 
+        finished = false
         current.play()
     }
 
@@ -80,6 +98,7 @@ actual class VoicePlayer actual constructor() {
     private fun releasePlayer() {
         player?.stop()
         player = null
+        finished = false
     }
 
     private fun activatePlaybackSession() {
@@ -119,5 +138,20 @@ actual class VoicePlayer actual constructor() {
             )
             // Ignore errors - session might not be active
         }
+    }
+}
+
+/** Reports the end of a voice message: played to the end, or stopped by a decode error. */
+@OptIn(ExperimentalForeignApi::class)
+private class PlaybackEndDelegate(
+    private val onEnded: (AVAudioPlayer) -> Unit,
+) : NSObject(), AVAudioPlayerDelegateProtocol {
+
+    override fun audioPlayerDidFinishPlaying(player: AVAudioPlayer, successfully: Boolean) {
+        onEnded(player)
+    }
+
+    override fun audioPlayerDecodeErrorDidOccur(player: AVAudioPlayer, error: NSError?) {
+        onEnded(player)
     }
 }

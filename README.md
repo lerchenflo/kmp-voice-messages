@@ -69,12 +69,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.1`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.0.2`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-voice-messages/tags):
 
 ```toml
 [versions]
-kmpVoiceMessages = "1.0.1"
+kmpVoiceMessages = "1.0.2"
 
 [libraries]
 kmp-voice-messages = { module = "com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages", version.ref = "kmpVoiceMessages" }
@@ -140,14 +140,17 @@ class VoiceRecorder() {
     fun stop()
 }
 
-// Plays a file. Poll positionMs / isPlaying for a progress bar.
+// Plays a file. Poll positionMs / isPlaying / isPaused for a progress bar.
 class VoicePlayer() {
     val positionMs: Long
     val durationMs: Long
     val isPlaying: Boolean
-    fun play(filePath: String)
+    // Loaded and paused (by pause() or by another app taking the audio): resume() continues.
+    // False while playing, after the end, after stop() and before the first play().
+    val isPaused: Boolean
+    fun play(filePath: String)   // throws IllegalStateException if another app holds the audio (phone call)
     fun pause()
-    fun resume()
+    fun resume()                 // same exception; the message then stays paused
     fun seekTo(positionMs: Long)
     fun stop()
 }
@@ -155,6 +158,20 @@ class VoicePlayer() {
 // Length of a voice message file in milliseconds, 0 if it can't be read. Blocking file I/O.
 fun voiceMessageDurationMs(filePath: String): Long
 ```
+
+**Other apps' audio.** While a voice message plays, music and podcasts of other apps pause, and
+they continue once the voice message is paused, stopped, finished or fails to play. When another
+app takes the audio (a phone call, a video, a navigation prompt, another music app), the voice
+message pauses: `isPlaying` turns false and `isPaused` turns true, and it stays paused until
+`resume()`. So when you poll `isPlaying` to detect the end of a message, check `isPaused` too:
+`!isPlaying && !isPaused` means finished or stopped.
+
+- Android: transient audio focus (other apps pause, no ducking), audio marked as speech on the
+  media stream. The library's manifest registers a small `ContentProvider`
+  (`VoiceMessagesInitProvider`) that hands the application context to `VoicePlayer`, so
+  `VoicePlayer()` needs no `Context`. Nothing to set up in the app.
+- iOS: the shared `AVAudioSession` with category Playback.
+- Desktop: no audio focus; `isPaused` only turns true through `pause()`.
 
 ## Usage
 
@@ -328,6 +345,22 @@ tried without a tag by using its short hash as version, for example
 `com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages:a1b2c3d`.
 
 ## Changelog
+
+### 1.0.2
+
+- Android takes transient audio focus while a voice message plays, so other apps' music pauses
+  (no ducking) and continues once the voice message is paused, stopped, finished or fails. The
+  audio is marked as speech on the media stream.
+- Android: when another app takes the audio (call, video, navigation prompt, other music app),
+  the voice message pauses and stays paused until `resume()`.
+- New `VoicePlayer.isPaused` on all platforms: true while a voice message is loaded and paused (by
+  `pause()`, or on Android and iOS by another app taking the audio), false while playing, after the
+  end and after `stop()`. Tells a pause apart from the end, since `isPlaying` is false for both.
+- Android `play()` / `resume()` throw `IllegalStateException` when the audio focus is denied (for
+  example during a phone call), like iOS does when the audio session can't be activated.
+- Android `play()` releases the `MediaPlayer` when the file can't be prepared.
+- `VoiceMessagePlayer` continues a paused voice message from where it stopped instead of starting
+  it again from the beginning.
 
 ### 1.0.1
 
