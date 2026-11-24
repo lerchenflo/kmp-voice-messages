@@ -70,12 +70,12 @@ dependencyResolutionManagement {
 }
 ```
 
-**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.1.0`, see the
+**2. Add the version** to `gradle/libs.versions.toml`. The latest version is `1.1.1`, see the
 [changelog](#changelog) and the [tags page](https://github.com/lerchenflo/kmp-voice-messages/tags):
 
 ```toml
 [versions]
-kmpVoiceMessages = "1.1.0"
+kmpVoiceMessages = "1.1.1"
 
 [libraries]
 kmp-voice-messages = { module = "com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages", version.ref = "kmpVoiceMessages" }
@@ -423,6 +423,12 @@ tried without a tag by using its short hash as version, for example
 `com.github.lerchenflo.kmp-voice-messages:kmp-voice-messages:a1b2c3d`.
 
 ## Changelog
+
+### 1.1.1
+
+- iOS: `VoiceMessagePlayer` no longer crashes the app for a blank or missing `filePath` (for
+  example a just-sent message whose file isn't downloaded yet). Reading the length returns 0
+  there, as on Android and desktop.
 
 ### 1.1.0
 
